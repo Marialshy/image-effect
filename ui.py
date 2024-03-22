@@ -1,70 +1,97 @@
 import sys
-from my_image import MyImage
+from image_service import PILImageService, ImgFilters
 
 
-class MenuInterface:
-    def __init__(self, url: str) -> None:
-        self.image = MyImage(url)
-        self.actions = [self.quit, self.save_image, self.resize_image_by_height, self.apply_filter]
+class UI:
+    def __init__(self, img_service: str, path: str) -> None:
+        self.img_service = img_service
+        self.path = path
+        self.actions = [self.quit, self.show, self.save, self.resize, self.apply_filter]
+        self.image_service = self.apply_image_service()
+        self.image = self.load()
 
+    def apply_image_service(self):
+        if self.img_service == 'PILImageService':
+            return PILImageService()
+        
+    def load(self):
+        return self.image_service.load(self.path)
+    
     def run(self):
-        if self.check_if_image():
-            self.show_menu()
-            self.select_action()
-        else:
-            print('No image was detected. Try another link')
-
-    def check_if_image(self):
-        return self.image.downloaded_image is not None
-
-    def show_menu(self):
         for action in enumerate(self.actions):
             print(f'\t{action[0]}: {action[1].__name__}')
         print('\t--- ---')
-
+        self.select_action()
+        
     def select_action(self):
         act = input(f'Please insert number 0 - {len(self.actions)-1} to continue: ')
         try:
             if int(act) in range(len(self.actions)):
                 self.actions[int(act)]()
         except ValueError:
-            print(f'Try again.')
+            print(f'Try again. Enter number to select action.')
             self.select_action()
 
     def quit(self):
         print('\t -> quit')
         sys.exit()
 
-    def save_image(self):
-        name = self.create_file_name()
-        fp = self.image.save(name)  # to jpg (bool)
-        print(f'saved: {fp}')
+    def save(self): 
+        filepath = self.get_file_path()
+        self.image_service.save(self.image, filepath)
+        print(f'\t saved: {filepath}')
 
-    def resize_image_by_height(self):
-        new_height = self.get_new_picutre_height()
-        name = self.create_file_name()
-        self.image.resize_by_height(new_height)
-        self.image.save(name, 'resized', True)  # автосохранение в jpg
+    def show(self):
+        self.image_service.show(self.image)
+
+    def resize(self):
+        resized = self.image_service.resize(self.image, self.get_new_picutre_size())
+        self.image_service.show(resized)
+        return resized
 
     def apply_filter(self):
-        return
-        self.image.apply_filter()
+        self.image_service.apply_filter(self.image, self.get_filter_type()) # тут нет параметров
 
-    def create_file_name(self):
-        return input('Please enter file name: ')  # тут нет проверки на спецсимволы
+    def get_file_path(self):
+        return input('Please enter file name or path to save: ')  # тут нет проверки на спецсимволы -> OSError, если некорректно
 
-    def get_new_picutre_height(self):
-        height = input("Enter a new height to resize the image: ")
+    def get_new_picutre_size(self):
+        width = input("Enter a new width to resize the image: ")
+        height= input("Enter a new height to resize the image: ")
         try:
-            if 10 < int(height) < 1080:
-                return int(height)
+            if 10 < int(height) < 1080 and 10 < int(width) < 1080:
+                return (int(width), int(height))
             raise ValueError
         except ValueError:
-            print('incorrect height, should be integer in range 10 - 1080 px. Try again')
-            return self.get_new_picutre_height()
+            print('incorrect input, should be integer in range 10 - 1080 px. Try again')
+            return self.get_new_picutre_size()
+        
+    def get_filter_type(self):
+        print('\n > Availiable options:')
+        for type in ImgFilters:
+            print(f'\t> {type.name} - {type.value}')
+        selected = input("Select filter (by name): ").lower().rstrip()
+        if selected == 'blur':
+            return ImgFilters.blur
+        elif selected == 'sharpen':
+            return ImgFilters.sharpen
+        elif selected == 'smooth':
+            return ImgFilters.smooth
+        elif selected == 'filter':
+            return ImgFilters.filter
+        print("incorrect filter type, try again")
+        return self.get_filter_type()
+
+            
+
+        
+
+
 
 
 if __name__ == '__main__':
     test_url = 'https://i.pinimg.com/originals/f6/db/2d/f6db2d2968625adf2774de966cf2951b.png'
-    test_ui = MenuInterface(test_url)
-    test_ui.run()
+    test_ui = UI('PILImageService', test_url)
+    test_ui2 = UI('PILImageService', '.\\saved_img_pil\\test.png')
+    
+    #test_ui2.run()
