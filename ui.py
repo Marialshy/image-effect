@@ -15,7 +15,9 @@ class UI:
             return PILImageService()
         
     def load(self):
-        return self.image_service.load(self.path)
+        loaded_img = self.image_service.load(self.path)
+        if loaded_img is None:
+            print('Unsuccessful loading. Try another link ot path.') # выход или перезапуск?
     
     def run(self):
         for action in enumerate(self.actions):
@@ -38,8 +40,12 @@ class UI:
 
     def save(self): 
         filepath = self.get_file_path()
-        self.image_service.save(self.image, filepath)
-        print(f'\t saved: {filepath}')
+        try: 
+            self.image_service.save(self.image, filepath)
+            print(f'\t saved: {filepath}')
+        except OSError:
+            print('Incorrect path. Image will be saved automatically')
+            self.image_service.save(self.image, 'auto_saved')
 
     def show(self):
         self.image_service.show(self.image)
@@ -53,7 +59,7 @@ class UI:
         self.image_service.apply_filter(self.image, self.get_filter_type()) # тут нет параметров
 
     def get_file_path(self):
-        return input('Please enter file name or path to save: ')  # тут нет проверки на спецсимволы -> OSError, если некорректно
+        return input('Please enter file name or path to save: ')
 
     def get_new_picutre_size(self):
         width = input("Enter a new width to resize the image: ")
@@ -92,6 +98,6 @@ class UI:
 if __name__ == '__main__':
     test_url = 'https://i.pinimg.com/originals/f6/db/2d/f6db2d2968625adf2774de966cf2951b.png'
     test_ui = UI('PILImageService', test_url)
-    test_ui2 = UI('PILImageService', '.\\saved_img_pil\\test.png')
+    test_ui2 = UI('PILImageService', '.\\saved_img_pil\\test-1.jpg') # AttributeError: 'MissingSchema' object has no attribute 'save'
     
-    #test_ui2.run()
+    test_ui.run()
