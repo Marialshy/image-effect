@@ -18,6 +18,26 @@ class ImageService(ABC):
     def resize(self, image, size: tuple[int, int]):
         pass
 
+    def check_path(self, path: str):
+        file_path = os.path.split(path)
+        directory = self.__check_dir(file_path[0])
+
+        checked_path = os.path.join(directory, file_path[1])
+        f_extension = os.path.splitext(file_path[1])[1]
+        if f_extension:
+            return checked_path, False
+        return checked_path, True
+
+    def __check_dir(self, dir_path: str):
+        if os.path.isdir(dir_path):
+            return dir_path
+        directory = os.path.dirname(os.path.abspath(__file__))  # директория исполняемого файла
+        fp = os.path.join(directory, 'saved_img')
+        if not os.path.isdir(fp):
+            os.chdir(directory)
+            os.mkdir('saved_img')
+        return fp
+
     @abstractmethod
     def save(self, image, path: str):
         pass
@@ -27,22 +47,25 @@ class ImageService(ABC):
         pass
 
     @abstractmethod
-    def apply_filter(self, image, filter, params: dict):
+    def apply_filter(self, image, filter_type, params: dict):
         pass
+
+    def set_filters(self, functions: list):
+        keys = [ImgFilters.blur, ImgFilters.sharpen, ImgFilters.smooth, ImgFilters.filter]
+        return {k: v for k, v in zip(keys, functions)}
 
 
 class ImgFilters(Enum):
-    blur = 'Blur image by given radius. Radius 1 takes 1 pixel in each direction, i.e. 9 pixels in total. (default radius = 5)'
-    sharpen = 'Sharpen image'
-    smooth = 'Smooth image'
-    filter = 'Create a mode filter. Picks the most frequent pixel value in a box (3*3 pixels)'
+    blur = 1
+    sharpen = 2
+    smooth = 3
+    filter = 4
 
 
 class PILImageService(ImageService):
     def load(self, path: str):
         if os.path.isfile(path):
             return Image.open(path)
-
         try:
             img_request = requests.get(path)
             if img_request.status_code == 200:
@@ -55,43 +78,24 @@ class PILImageService(ImageService):
         # return image.resize(size) # (ширина, высота), без применения масштабирования
 
     def save(self, image: Image.Image, path: str):
-        file_path = os.path.split(path)
-        if os.path.isdir(file_path[0]):
-            image.save(path)
-            return path
-
-        directory = os.path.dirname(os.path.abspath(__file__))  # директория исполняемого файла
-        fp = os.path.join(directory, 'saved_img_pil')
-        if not os.path.isdir(fp):
-            os.chdir(directory)
-            os.mkdir('saved_img_pil')
+        fp = self.check_path(path)
+        checked_path = fp[0]
+        if fp[1]:
+            checked_path += '.' + image.format.lower()
         try:
-            path = os.path.join(fp, path)
-            image.save(path)
-        except ValueError:
-            path = os.path.join(fp, f'{path}.{image.format.lower()}')
-            image.save(path)
-        except FileNotFoundError:
-            path = os.path.join(fp, f'{file_path[1]}')
-            image.save(path)
-        return path
+            image.save(checked_path)
+        except OSError as e:
+            return e
+        return checked_path
 
     def show(self, image: Image.Image):
         image.show()
 
-    def apply_filter(self, image: Image.Image, filter: ImgFilters, params={}):
-        if filter == ImgFilters.blur:
-            blur_radius = params.get('radius', 5)
-            return image.filter(ImageFilter.BoxBlur(blur_radius))
-
-        elif filter == ImgFilters.sharpen:
-            return image.filter(ImageFilter.SHARPEN())
-
-        elif filter == ImgFilters.smooth:
-            return image.filter(ImageFilter.SMOOTH())
-
-        elif filter == ImgFilters.filter:
-            return image.filter(ImageFilter.ModeFilter())
+    def apply_filter(self, image: Image.Image, filter_type: ImgFilters, params={}):
+        filter_functions = [ImageFilter.BoxBlur(params.get('blur', 5)),
+                            ImageFilter.SHARPEN(), ImageFilter.SMOOTH(), ImageFilter.ModeFilter()]
+        filters = self.set_filters(filter_functions)
+        return image.filter(filters.get(filter_type))
 
 
 class SkiImageService(ImageService):
@@ -121,18 +125,38 @@ class SkiImageService(ImageService):
         image_ratio = image.shape[0]/image.shape[1]
         size_ratio = size[0]/size[1]  # (height/width)
         ratio = image_ratio - size_ratio
-        
+
         if ratio >= acceptable_diff:
             height_crop = int((image.shape[0] - image.shape[1]*size_ratio)/2)
         elif ratio <= acceptable_diff:
             width_crop = int((image.shape[1] - image.shape[0]/size_ratio)/2)
         return height_crop, width_crop
 
-    def save(self, image, path: str):
-        return super().save(image, path)
+    def save(self, image, path: str, extension='.jpg'):
+        fp = self.check_path(path)
+        checked_path = fp[0]
+        if fp[1]:
+            checked_path += extension
+        try:
+            ski.io.imsave(checked_path, image)
+        except OSError as e:
+            return e
+        return checked_path
 
-    def apply_filter(self, image, filter, params: dict):
-        return super().apply_filter(image, filter, params)
+    def apply_filter(self, image, filter_type: ImgFilters, params={}):
+        def my_filter(image):
+            img = ski.util.img_as_float(image)
+            bw_img = ski.filters.butterworth(img, cutoff_frequency_ratio=0.001)
+            return img + bw_img*0.08
+
+        filters_list = [
+            lambda: ski.filters.gaussian(image, sigma=params.get('blur', 6), channel_axis=-1),
+            lambda: ski.filters.unsharp_mask(image, params.get('sharpen_r', 0.52), params.get('sharpen_a', 7), channel_axis=2),
+            lambda: ski.restoration.denoise_bilateral(image, channel_axis=-1),
+            lambda: my_filter(image)
+        ]
+        filters = self.set_filters(filters_list)
+        return filters.get(filter_type)()
 
 
 if __name__ == '__main__':
@@ -140,13 +164,17 @@ if __name__ == '__main__':
     test_url2 = 'https://i.pinimg.com/564x/91/74/10/917410946ed00961e793dd28622dc84b.jpg'
     test_url_h = 'https://i.pinimg.com/originals/4c/d1/40/4cd140e29a0d499d8fc8fe7adf0924e0.jpg'
     test_url_403 = 'https://i.pinimg.com/564x/91/74/10/917410946ed0e793dd28622dc84b.jpg'
+    test_url_sh = 'https://i.pinimg.com/564x/23/17/6a/23176ad95fd1fbc051635fdc0152a874.jpg'
     test_path = '.\\saved_img_pil\\test-1.jpg'
     test_PIL = PILImageService()
     # print(test_PIL.load(test_url_403))
     # test_PIL.save(test_PIL.load(test_url), 'test') #ValueError: unknown file extension:
     # except ValueError: or FileNotFoundError
     # print(test_PIL.save(test_PIL.load(test_url), '3-test.jpg'))
-    # print(test_PIL.save(test_PIL.load(test_url), '.\\image_effect\\saved_test\\1_test.jpg'))
+    # print(test_PIL.save(test_PIL.load(test_url), '  $& /cha"?:s'))
+    # print(test_PIL.save(test_PIL.load(test_url), 'abs_test'))
+    # print(test_PIL.save(test_PIL.load(test_url), '.\\saved_img\\1_test.jpg'))
+    # print(test_PIL.save(test_PIL.load(test_url), 'D:\\learning\\python_practice\\files_user\\saved_pictures\\test_abstract_saved.jpg'))
 
     # loaded = test_PIL.load(test_url)
     # print(loaded.format, loaded.size)
@@ -166,6 +194,22 @@ if __name__ == '__main__':
     img_ski = test_ski.load(test_url)
     test_ski.show(img_ski)
     # print('height:', img_ski.shape[0], 'width:', img_ski.shape[1])
-    test_ski.show(test_ski.resize(img_ski, (450, 280)))
-    test_ski.show(test_ski.resize(img_ski, (300, 350)))
-    test_ski.show(test_ski.resize(img_ski, (800, 1080)))
+    # test_ski.show(test_ski.resize(img_ski, (450, 280)))
+    # test_ski.show(test_ski.resize(img_ski, (300, 350)))
+    # test_ski.show(test_ski.resize(img_ski, (800, 1080)))
+    # test_ski.save(img_ski, 'test-s')
+    # test_ski.show(test_ski.load(test_url_sh))
+    # test_ski.show(ski.filters.unsharp_mask(test_ski.load(test_url_sh), 1, 10))
+    # test_ski.show(ski.filters.unsharp_mask(test_ski.load(test_url_sh), 0.47, 5, channel_axis=2))
+    # test_ski.show(ski.filters.unsharp_mask(test_ski.load(test_url_sh), 0.4, 7, channel_axis=2))
+    # test_ski.show(ski.filters.gaussian(test_ski.load(test_url_sh), sigma=1, channel_axis=2))  # blur
+    # test_ski.show(ski.filters.gaussian(test_ski.load(test_url_sh), sigma=6, channel_axis=2))  # blur
+    # test_ski.show(ski.filters.gaussian(test_ski.load(test_url_sh), truncate=0.1, channel_axis=2))
+    # test_ski.show(ski.filters.butterworth(test_ski.load(test_url_sh)))
+    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.blur))
+    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.sharpen))
+    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.smooth))
+    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.filter))
+    # test_ski.show(test_ski.apply_filter(test_ski.load(test_url2), ImgFilters.filter))
+    # test_ski.show(test_ski.apply_filter(test_ski.load(test_url_sh), ImgFilters.filter))
+    # test_ski.show(test_ski.apply_filter(test_ski.load(test_url_h), ImgFilters.filter))
