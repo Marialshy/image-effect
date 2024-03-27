@@ -15,7 +15,7 @@ class ImageService(ABC):
         pass
 
     @abstractmethod
-    def resize(self, image, size: tuple[int, int]):
+    def resize(self, image,  height: int, width: int):
         pass
 
     def check_path(self, path: str):
@@ -73,9 +73,9 @@ class PILImageService(ImageService):
         except OSError:  # as e:
             return None
 
-    def resize(self, image: Image.Image, size: tuple[int, int]):
-        return ImageOps.fit(image, size)
-        # return image.resize(size) # (ширина, высота), без применения масштабирования
+    def resize(self, image: Image.Image, height: int, width: int):
+        return ImageOps.fit(image, (width, height))
+        # return image.resize(size) # без применения масштабирования
 
     def save(self, image: Image.Image, path: str):
         fp = self.check_path(path)
@@ -93,7 +93,7 @@ class PILImageService(ImageService):
 
     def apply_filter(self, image: Image.Image, filter_type: ImgFilters, params={}):
         filter_functions = [ImageFilter.BoxBlur(params.get('blur', 5)),
-                            ImageFilter.SHARPEN(), ImageFilter.SMOOTH(), ImageFilter.ModeFilter()]
+                            ImageFilter.SHARPEN(), ImageFilter.SMOOTH(), ImageFilter.ModeFilter(size = 6)]
         filters = self.set_filters(filter_functions)
         return image.filter(filters.get(filter_type))
 
@@ -102,28 +102,28 @@ class SkiImageService(ImageService):
     def load(self, path: str):
         try:
             return ski.io.imread(path)
-        except (FileNotFoundError, urllib.error.HTTPError):
+        except (FileNotFoundError, urllib.error.HTTPError, urllib.error.URLError):
             return None
 
     def show(self, image):
         ski.io.imshow(image)
         plt.show()
 
-    def resize(self, image, size: tuple[int, int]):
-        height_crop, width_crop = self.evaluate_crop_size(image, size)
+    def resize(self, image, height: int, width: int):
+        height_crop, width_crop = self.evaluate_crop_size(image, height, width)
         if height_crop or width_crop:
             image = ski.util.crop(image, ((height_crop, height_crop), (width_crop, width_crop), (0, 0)))
 
-        return ski.transform.resize(image, size, anti_aliasing=True)
+        return ski.transform.resize(image, (height, width), anti_aliasing=True)
 
-    def evaluate_crop_size(self, image, size):
+    def evaluate_crop_size(self, image, height, width):
         # skimage.util.crop(ar, crop_width, copy=False, order='K')[source]
         # Crop array ar by crop_width along each dimension.
 
         height_crop, width_crop = 0, 0
         acceptable_diff = 0.05
         image_ratio = image.shape[0]/image.shape[1]
-        size_ratio = size[0]/size[1]  # (height/width)
+        size_ratio = height/width
         ratio = image_ratio - size_ratio
 
         if ratio >= acceptable_diff:
@@ -145,18 +145,19 @@ class SkiImageService(ImageService):
 
     def apply_filter(self, image, filter_type: ImgFilters, params={}):
         def my_filter(image):
-            img = ski.util.img_as_float(image)
-            bw_img = ski.filters.butterworth(img, cutoff_frequency_ratio=0.001)
-            return img + bw_img*0.08
+            img = ski.exposure.equalize_adapthist(image, clip_limit=0.007)
+            bw_img = ski.filters.butterworth(img, cutoff_frequency_ratio=0.01)
+            img += bw_img*0.0015
+            return img
 
         filters_list = [
-            lambda: ski.filters.gaussian(image, sigma=params.get('blur', 6), channel_axis=-1),
+            lambda: ski.filters.gaussian(image, sigma=params.get('blur', 5), channel_axis=-1),
             lambda: ski.filters.unsharp_mask(image, params.get('sharpen_r', 0.52), params.get('sharpen_a', 7), channel_axis=2),
             lambda: ski.restoration.denoise_bilateral(image, channel_axis=-1),
             lambda: my_filter(image)
         ]
         filters = self.set_filters(filters_list)
-        return filters.get(filter_type)()
+        return (filters.get(filter_type)()* 255).round().astype(plt.np.uint8)
 
 
 if __name__ == '__main__':
@@ -176,27 +177,27 @@ if __name__ == '__main__':
     # print(test_PIL.save(test_PIL.load(test_url), '.\\saved_img\\1_test.jpg'))
     # print(test_PIL.save(test_PIL.load(test_url), 'D:\\learning\\python_practice\\files_user\\saved_pictures\\test_abstract_saved.jpg'))
 
-    # loaded = test_PIL.load(test_url)
+    loaded = test_PIL.load(test_url)
     # print(loaded.format, loaded.size)
-    # test_PIL.resize(loaded, (180,300)).show()
-    # test_PIL.resize(loaded, (150,1080)).show()
+    # test_PIL.resize(loaded, 180,300).show()
+    # test_PIL.resize(loaded, 150,1080).show()
 
     # test_PIL.apply_filter(loaded, ImgFilters.blur, {'radius': 1.2}).show()
     # test_PIL.apply_filter(loaded, ImgFilters.blur).show()
     # test_PIL.apply_filter(loaded, ImgFilters.sharpen).show()
     # test_PIL.apply_filter(loaded, ImgFilters.smooth).show()
-    # test_PIL.apply_filter(loaded, ImgFilters.filter).show()
+    test_PIL.apply_filter(loaded, ImgFilters.filter).show()
 
     test_ski = SkiImageService()
     # print(test_ski.load('.\\saved_test\\1_test.jpg'))
     # print(test_ski.load(test_url_403))
     # img_ski = test_ski.load(test_url)
-    img_ski = test_ski.load(test_url)
-    test_ski.show(img_ski)
+    img_ski = test_ski.load(test_url2)
+    # test_ski.show(img_ski)
     # print('height:', img_ski.shape[0], 'width:', img_ski.shape[1])
-    # test_ski.show(test_ski.resize(img_ski, (450, 280)))
-    # test_ski.show(test_ski.resize(img_ski, (300, 350)))
-    # test_ski.show(test_ski.resize(img_ski, (800, 1080)))
+    # test_ski.show(test_ski.resize(img_ski, 700, 200))
+    # test_ski.show(test_ski.resize(img_ski, 300, 350))
+    # test_ski.show(test_ski.resize(img_ski, 800, 1080))
     # test_ski.save(img_ski, 'test-s')
     # test_ski.show(test_ski.load(test_url_sh))
     # test_ski.show(ski.filters.unsharp_mask(test_ski.load(test_url_sh), 1, 10))
@@ -206,10 +207,18 @@ if __name__ == '__main__':
     # test_ski.show(ski.filters.gaussian(test_ski.load(test_url_sh), sigma=6, channel_axis=2))  # blur
     # test_ski.show(ski.filters.gaussian(test_ski.load(test_url_sh), truncate=0.1, channel_axis=2))
     # test_ski.show(ski.filters.butterworth(test_ski.load(test_url_sh)))
-    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.blur))
-    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.sharpen))
-    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.smooth))
-    test_ski.show(test_ski.apply_filter(img_ski, ImgFilters.filter))
+
+    test_my_filtered = test_ski.apply_filter(img_ski, ImgFilters.filter)
+    # test_blured = test_ski.apply_filter(img_ski, ImgFilters.blur)
+    # test_sharpen = test_ski.apply_filter(img_ski, ImgFilters.sharpen)
+    # test_smooth = test_ski.apply_filter(img_ski, ImgFilters.smooth)
+    # print(type(test_my_filtered))
+    # print(test_my_filtered.__dir__())
+    # print(test_my_filtered.__array__())
+    # print(test_blured.__array__()) # float
+    # print(test_sharpen.__array__()) # float
+    # print(test_smooth.__array__()) # float
+    test_ski.show(test_my_filtered)
     # test_ski.show(test_ski.apply_filter(test_ski.load(test_url2), ImgFilters.filter))
     # test_ski.show(test_ski.apply_filter(test_ski.load(test_url_sh), ImgFilters.filter))
     # test_ski.show(test_ski.apply_filter(test_ski.load(test_url_h), ImgFilters.filter))
