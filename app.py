@@ -11,10 +11,10 @@ def app():
     '''
     def start_app():
         url = input('Enter the link to the picture to get started: ')
-        try: 
+        try:
             interface = ui.UI(get_service(), url)
         except AttributeError:
-            print('Incorrect input. Try another link or path')
+            print('Unsuccessful loading. Try another link or path')
             return start_app()
         return interface
 
