@@ -1,23 +1,16 @@
 import sys
-from image_service import PILImageService, ImgFilters, SkiImageService
+from image_service import PILImageService, ImgFilters, SkiImageService, ImageService
 import numpy as np
 
 
 class UI:
-    def __init__(self, img_service: str, path: str) -> None:
-        self.img_service = img_service
+    def __init__(self, img_service: ImageService, path: str) -> None:
+        self.__image_service = img_service
         self.path = path
         self.actions = [self.quit, self.show, self.save, self.resize, self.apply_filter]
-        self.__image_service = self.__apply_image_service()
         self.__image = None
         self.loading_error = None
         self.load()
-
-    def __apply_image_service(self):
-        if self.img_service == 'pil':
-            return PILImageService()
-        elif self.img_service == 'ski':
-            return SkiImageService()
 
     def load(self):
         loading_result = self.__image_service.load(self.path)
@@ -145,8 +138,8 @@ if __name__ == '__main__':
     test_url = 'https://i.pinimg.com/originals/f6/db/2d/f6db2d2968625adf2774de966cf2951b.png'
     test_url_h = 'https://i.pinimg.com/originals/4c/d1/40/4cd140e29a0d499d8fc8fe7adf0924e0.jpg'
     # test_ui = UI('PILImageService', test_url)
-    test_ui = UI('pil', test_url_h)
-    test_ui1 = UI('ski', test_url_h)
+    test_ui = UI(PILImageService(), test_url_h)
+    test_ui1 = UI(SkiImageService(), test_url_h)
     # test_ui2 = UI('PILImageService', '.\\saved_img_pil\\test-1.jpg') # AttributeError: 'MissingSchema' object has no attribute 'save'
 
     # test_ui.run()

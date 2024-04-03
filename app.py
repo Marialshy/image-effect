@@ -1,5 +1,27 @@
 import ui
+from image_service import PILImageService, SkiImageService
 
+
+def create_app():
+    url = input('Enter the link to the picture to get started: ')
+    image_service = get_service()
+    try:
+        interface = ui.UI(image_service, url)
+    except AttributeError:
+        print('Unsuccessful loading. Try another link or path')
+        return create_app()
+    return interface
+
+
+def get_service():
+    service = input('Choose the service type - pillow (enter [pil]) or skimage (enter [ski]): ').lower().rstrip()
+    if service == 'pil':
+        return PILImageService()
+    elif service == 'ski':
+        return SkiImageService()
+
+    return get_service()
+    
 
 def app():
     '''
@@ -9,22 +31,7 @@ def app():
         - modify: filters, resize
         - save
     '''
-    def start_app():
-        url = input('Enter the link to the picture to get started: ')
-        try:
-            interface = ui.UI(get_service(), url)
-        except AttributeError:
-            print('Unsuccessful loading. Try another link or path')
-            return start_app()
-        return interface
-
-    def get_service():
-        service = input('Choose the service type - pillow (enter [pil]) or skimage (enter [ski]): ').lower().rstrip()
-        if service in ('pil', 'ski'):
-            return service
-        return get_service()
-
-    interface = start_app()
+    interface = create_app()
     while True:
         interface.run()
 

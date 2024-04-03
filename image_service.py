@@ -10,6 +10,7 @@ import skimage as ski
 
 
 class ImageService(ABC):
+
     @abstractmethod
     def load(self, path: str):
         pass
@@ -50,10 +51,6 @@ class ImageService(ABC):
     def apply_filter(self, image, filter_type, params: dict):
         pass
 
-    def set_filters(self, functions: list):
-        keys = [ImgFilters.blur, ImgFilters.sharpen, ImgFilters.smooth, ImgFilters.filter]
-        return {k: v for k, v in zip(keys, functions)}
-
 
 class ImgFilters(Enum):
     blur = 1
@@ -66,6 +63,13 @@ class PILImageService(ImageService):
     filter_params = {
         ImgFilters.blur: ['blur_p'],
         ImgFilters.sharpen: ['sharpen_p_r', 'sharpen_p_p']
+    }
+
+    filters_list = {
+        ImgFilters.blur: lambda params: ImageFilter.BoxBlur(params.get('blur_p', 5)),
+        ImgFilters.sharpen: lambda params: ImageFilter.UnsharpMask(params.get('sharpen_p_r', 2), int(params.get('sharpen_p_p', 15))*10),
+        ImgFilters.smooth: lambda params: ImageFilter.SMOOTH(),
+        ImgFilters.filter: lambda params: ImageFilter.ModeFilter(size=6)
     }
 
     def load(self, path: str):
@@ -88,7 +92,7 @@ class PILImageService(ImageService):
         checked_path = fp[0]
         if fp[1]:
             print(image)
-            checked_path += extension # + image.format.lower() - только для PIL.JpegImagePlugin.JpegImageFile
+            checked_path += extension  # + image.format.lower() - только для PIL.JpegImagePlugin.JpegImageFile
         try:
             image.save(checked_path)
         except OSError as e:
@@ -99,10 +103,7 @@ class PILImageService(ImageService):
         image.show()
 
     def apply_filter(self, image: Image.Image, filter_type: ImgFilters, params={}):
-        filter_functions = [ImageFilter.BoxBlur(params.get('blur_p', 5)),
-                            ImageFilter.UnsharpMask(params.get('sharpen_p_r', 2), int(params.get('sharpen_p_p',15))*10), ImageFilter.SMOOTH(), ImageFilter.ModeFilter(size = 6)]
-        filters = self.set_filters(filter_functions)
-        return image.filter(filters.get(filter_type))
+        return image.filter(self.filters_list.get(filter_type)(params))
 
 
 class SkiImageService(ImageService):
@@ -110,7 +111,14 @@ class SkiImageService(ImageService):
         ImgFilters.blur: ['blur_s'],
         ImgFilters.sharpen: ['sharpen_s_r', 'sharpen_s_a']
     }
-        
+
+    filters = {
+        ImgFilters.blur: lambda image, params: ski.filters.gaussian(image, sigma=params.get('blur_s', 5), channel_axis=-1),
+        ImgFilters.sharpen: lambda image, params: ski.filters.unsharp_mask(image, params.get('sharpen_s_r', 0.52), params.get('sharpen_s_a', 5), channel_axis=2),
+        ImgFilters.smooth: lambda image, params: ski.restoration.denoise_bilateral(image, channel_axis=-1),
+        ImgFilters.filter: lambda image, params: SkiImageService.my_filter(image)
+    }
+
     def load(self, path: str):
         try:
             return ski.io.imread(path), None
@@ -156,20 +164,14 @@ class SkiImageService(ImageService):
         return checked_path
 
     def apply_filter(self, image, filter_type: ImgFilters, params={}):
-        def my_filter(image):
-            img = ski.exposure.equalize_adapthist(image, clip_limit=0.007)
-            bw_img = ski.filters.butterworth(img, cutoff_frequency_ratio=0.01)
-            img += bw_img*0.0015
-            return img
+        return (self.filters.get(filter_type)(image, params) * 255).round().astype(plt.np.uint8)
 
-        filters_list = [
-            lambda: ski.filters.gaussian(image, sigma=params.get('blur_s', 5), channel_axis=-1),
-            lambda: ski.filters.unsharp_mask(image, params.get('sharpen_s_r', 0.52), params.get('sharpen_s_a', 5), channel_axis=2),
-            lambda: ski.restoration.denoise_bilateral(image, channel_axis=-1),
-            lambda: my_filter(image)
-        ]
-        filters = self.set_filters(filters_list)
-        return (filters.get(filter_type)()* 255).round().astype(plt.np.uint8)
+    @staticmethod
+    def my_filter(image):
+        img = ski.exposure.equalize_adapthist(image, clip_limit=0.007)
+        bw_img = ski.filters.butterworth(img, cutoff_frequency_ratio=0.01)
+        img += bw_img*0.0015
+        return img
 
 
 if __name__ == '__main__':
